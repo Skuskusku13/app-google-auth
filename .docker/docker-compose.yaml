@@ -1,0 +1,41 @@
+networks:
+  nginx:
+    external: true
+
+
+services:
+
+  app-google:
+    build:
+      context: ../
+      dockerfile: .docker/Dockerfile
+      target: development
+    container_name: app-google
+    restart: unless-stopped
+    volumes:
+      - /var/www/back/vendor
+      - ../:/var/www/back/
+      - ${PATH_PROJECTS_LOGS}:/var/log/apache2/:rw
+    environment:
+      APP_ENV: dev
+      APP_SECRET: ${APP_SECRET:-change_me_in_prod}
+      VIRTUAL_HOST: app-google.localhost
+      VIRTUAL_PORT: 80
+    networks:
+      - nginx
+
+  app-google-prod:
+    build:
+      context: ../
+      dockerfile: .docker/Dockerfile
+      target: production
+    container_name: app-google-prod
+    restart: unless-stopped
+    environment:
+      APP_ENV: prod
+      APP_SECRET: ${APP_SECRET:-change_me_in_prod}
+      VIRTUAL_HOST: back.dlyhub.com
+      LETSENCRYPT_HOST: back.dlyhub.com
+      LETSENCRYPT_EMAIL: ${DEFAULT_EMAIL}
+    networks:
+      - nginx

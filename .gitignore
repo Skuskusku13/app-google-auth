@@ -1,4 +1,11 @@
 
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
 ###> symfony/framework-bundle ###
 /.env.local
 /.env.local.php
@@ -8,3 +15,7 @@
 /var/
 /vendor/
 ###< symfony/framework-bundle ###
+
+###> phpstan/phpstan ###
+phpstan.neon
+###< phpstan/phpstan ###
