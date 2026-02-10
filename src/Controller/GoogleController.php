@@ -17,7 +17,7 @@ class GoogleController extends AbstractController
             ->getClient('google')
             ->redirect([
                 'email', 'profile'
-            ]);
+            ], []);
     }
 
     #[Route('/connect/google/check', name: 'connect_google_check')]

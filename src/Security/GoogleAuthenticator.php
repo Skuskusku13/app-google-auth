@@ -36,10 +36,15 @@ class GoogleAuthenticator extends OAuth2Authenticator
 
         return new SelfValidatingPassport(
             new UserBadge($accessToken->getToken(), function() use ($accessToken, $client) {
+                /** @var \League\OAuth2\Client\Provider\GoogleUser $googleUser */
                 $googleUser = $client->fetchUserFromToken($accessToken);
 
                 $email = $googleUser->getEmail();
                 $googleId = $googleUser->getId();
+
+                if (null === $email) {
+                    throw new AuthenticationException('No email provided by Google.');
+                }
 
                 // Chercher l'utilisateur existant
                 $user = $this->entityManager->getRepository(User::class)
