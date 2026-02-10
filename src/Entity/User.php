@@ -60,7 +60,8 @@ class User implements UserInterface
      */
     public function getUserIdentifier(): string
     {
-        return (string) $this->email;
+        assert($this->email !== null && $this->email !== '', 'User email must not be empty');
+        return $this->email;
     }
 
     /**

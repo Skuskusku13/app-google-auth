@@ -7,3 +7,5 @@ parameters:
         - src/
     excludePaths:
         - config/reference.php
+    ignoreErrors:
+        - '#Property App\\Entity\\User::\$id \(int\|null\) is never assigned int#'
