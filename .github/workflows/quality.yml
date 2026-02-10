@@ -10,4 +10,4 @@ jobs:
     uses: skuskusku13/workflows-reusable/.github/workflows/php-quality.yml@1.0.0
     with:
       php-version: '8.4'
-      php-extensions: ''
+      php-extensions: 'pdo, pdo_mysql'

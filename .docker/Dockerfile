@@ -22,6 +22,7 @@ WORKDIR /var/www/app-google/
 
 # Install system dependencies
 RUN apt update && apt upgrade -y \
+    && docker-php-ext-install pdo pdo_mysql \
     && apt clean && rm -rf /var/lib/apt/lists/*
 
 # Enable Apache modules
