@@ -13,9 +13,9 @@ services:
     container_name: app-google
     restart: unless-stopped
     volumes:
-      - /var/www/back/vendor
-      - ../:/var/www/back/
-      - ${PATH_PROJECTS_LOGS}:/var/log/apache2/:rw
+      - /var/www/app-google/vendor
+      - ../:/var/www/app-google/
+      - ${PATH_PROJECTS_LOGS}/app-google-auth/:/var/log/apache2/:rw
     environment:
       APP_ENV: dev
       APP_SECRET: ${APP_SECRET:-change_me_in_prod}
