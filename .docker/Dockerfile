@@ -43,6 +43,11 @@ ENV APACHE_SERVER_NAME=app-google.localhost
 COPY --from=composer_dev /app/vendor /var/www/app-google/vendor
 COPY --from=composer_dev /app/composer.json /app/composer.lock /app/symfony.lock /var/www/app-google/
 
+# Configure Apache to listen on port 8000
+RUN sed -i 's/Listen 80/Listen 8000/' /etc/apache2/ports.conf
+
+EXPOSE 8000
+
 # --- 4. PHP Production Stage ---
 FROM php_base AS production
 
