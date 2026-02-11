@@ -7,6 +7,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Google\Client;
 use Google\Service\Docs;
 use Google\Service\Docs\BatchUpdateDocumentRequest;
+use Google\Service\Docs\CreateParagraphBulletsRequest;
 use Google\Service\Docs\DeleteContentRangeRequest;
 use Google\Service\Docs\Dimension;
 use Google\Service\Docs\InsertTextRequest;
@@ -98,7 +99,7 @@ class GoogleDocsService
      * Crée un nouveau document Google Docs
      *
      * @param string $title Le titre du document
-     * @return array ['documentId' => string, 'title' => string, 'url' => string]
+     * @return array{documentId: string, title: string, url: string}
      * @throws \Exception
      */
     public function createDocument(string $title): array
@@ -109,10 +110,12 @@ class GoogleDocsService
         $document = new Docs\Document(['title' => $title]);
         $doc = $service->documents->create($document);
 
+        $documentId = (string) $doc->getDocumentId();
+
         return [
-            'documentId' => $doc->getDocumentId(),
-            'title' => $doc->getTitle(),
-            'url' => "https://docs.google.com/document/d/{$doc->getDocumentId()}/edit"
+            'documentId' => $documentId,
+            'title' => (string) $doc->getTitle(),
+            'url' => "https://docs.google.com/document/d/{$documentId}/edit",
         ];
     }
 
@@ -156,18 +159,27 @@ class GoogleDocsService
     public function getDocumentContent(string $documentId): string
     {
         $doc = $this->getDocument($documentId);
-        $content = '';
-
-        if (!$doc->getBody() || !$doc->getBody()->getContent()) {
-            return $content;
+        $bodyContent = $doc->getBody()->getContent();
+        if ($bodyContent === []) {
+            return '';
         }
 
-        foreach ($doc->getBody()->getContent() as $element) {
-            if ($element->getParagraph()) {
-                foreach ($element->getParagraph()->getElements() as $paragraphElement) {
-                    if ($paragraphElement->getTextRun()) {
-                        $content .= $paragraphElement->getTextRun()->getContent();
-                    }
+        $content = '';
+        foreach ($bodyContent as $element) {
+            $paragraph = $element->getParagraph();
+            if ($paragraph === null) {
+                continue;
+            }
+
+            $paragraphElements = $paragraph->getElements();
+            if (!is_array($paragraphElements)) {
+                continue;
+            }
+
+            foreach ($paragraphElements as $paragraphElement) {
+                $textRun = $paragraphElement->getTextRun();
+                if ($textRun !== null) {
+                    $content .= (string) $textRun->getContent();
                 }
             }
         }
@@ -179,18 +191,19 @@ class GoogleDocsService
      * Récupère les métadonnées du document (titre, ID, révision)
      *
      * @param string $documentId L'ID du document
-     * @return array ['documentId' => string, 'title' => string, 'revisionId' => string, 'url' => string]
+     * @return array{documentId: string, title: string, revisionId: string, url: string}
      * @throws \Exception
      */
     public function getDocumentInfo(string $documentId): array
     {
         $doc = $this->getDocument($documentId);
+        $id = (string) $doc->getDocumentId();
 
         return [
-            'documentId' => $doc->getDocumentId(),
-            'title' => $doc->getTitle(),
-            'revisionId' => $doc->getRevisionId(),
-            'url' => "https://docs.google.com/document/d/{$doc->getDocumentId()}/edit"
+            'documentId' => $id,
+            'title' => (string) $doc->getTitle(),
+            'revisionId' => (string) $doc->getRevisionId(),
+            'url' => "https://docs.google.com/document/d/{$id}/edit",
         ];
     }
 
@@ -235,7 +248,12 @@ class GoogleDocsService
         // Récupérer l'index de fin du document
         $doc = $this->getDocument($documentId);
         $bodyContent = $doc->getBody()->getContent();
-        $endIndex = end($bodyContent)->getEndIndex() - 1;
+        if ($bodyContent === []) {
+            throw new \RuntimeException('Le document ne contient aucun élément éditable.');
+        }
+
+        $lastElement = end($bodyContent);
+        $endIndex = $lastElement->getEndIndex() - 1;
 
         $requests = [
             // 1. Supprimer tout le contenu existant
@@ -265,7 +283,7 @@ class GoogleDocsService
      *
      * @param string $title Le titre du document
      * @param string $html Le contenu HTML (supporte b, i, u, span style color, etc.)
-     * @return array ['documentId' => string, 'title' => string, 'url' => string]
+     * @return array{documentId: string, title: string, url: string}
      * @throws \Exception
      */
     public function createDocumentFromHtml(string $title, string $html): array
@@ -280,6 +298,8 @@ class GoogleDocsService
 
     /**
      * Crée un document depuis contenu riche Quill (Delta prioritaire, HTML en fallback)
+     *
+     * @return array{documentId: string, title: string, url: string}
      */
     public function createDocumentFromRichContent(string $title, ?string $deltaJson, string $htmlFallback): array
     {
@@ -297,6 +317,7 @@ class GoogleDocsService
     /**
      * Crée un document depuis le Delta Quill pour préserver bold/italic/color/size/header.
      *
+     * @return array{documentId: string, title: string, url: string}
      * @throws \JsonException
      */
     public function createDocumentFromDelta(string $title, string $deltaJson): array
@@ -313,6 +334,7 @@ class GoogleDocsService
         $fullText = '';
         $textRuns = [];
         $paragraphRuns = [];
+        $listRuns = [];
 
         $currentIndex = 1;
         $paragraphStart = 1;
@@ -342,6 +364,14 @@ class GoogleDocsService
                         'end' => $lineEnd,
                         'attrs' => $attrs,
                     ];
+                    $bulletPreset = $this->quillListToBulletPreset($attrs['list'] ?? null);
+                    if ($bulletPreset !== null) {
+                        $listRuns[] = [
+                            'start' => $paragraphStart,
+                            'end' => $lineEnd,
+                            'bulletPreset' => $bulletPreset,
+                        ];
+                    }
                     $currentIndex = $lineEnd;
                     $paragraphStart = $currentIndex;
                     continue;
@@ -392,6 +422,51 @@ class GoogleDocsService
             ]),
         ]);
 
+        foreach ($paragraphRuns as $run) {
+            $attrs = $run['attrs'];
+            $paragraphStyle = new Docs\ParagraphStyle();
+            $fields = [];
+
+            $namedStyleType = $this->quillHeaderToNamedStyleType($attrs['header'] ?? null);
+            if ($namedStyleType !== null) {
+                $paragraphStyle->setNamedStyleType($namedStyleType);
+                $fields[] = 'namedStyleType';
+            }
+
+            $alignment = $this->quillAlignToAlignment($attrs['align'] ?? null);
+            if ($alignment !== null) {
+                $paragraphStyle->setAlignment($alignment);
+                $fields[] = 'alignment';
+            }
+
+            if (!empty($fields)) {
+                $requests[] = new DocsRequest([
+                    'updateParagraphStyle' => new Docs\UpdateParagraphStyleRequest([
+                        'range' => new Range([
+                            'startIndex' => $run['start'],
+                            'endIndex' => $run['end'],
+                        ]),
+                        'paragraphStyle' => $paragraphStyle,
+                        'fields' => implode(',', $fields),
+                    ]),
+                ]);
+            }
+        }
+
+        foreach ($listRuns as $run) {
+            $requests[] = new DocsRequest([
+                'createParagraphBullets' => new CreateParagraphBulletsRequest([
+                    'range' => new Range([
+                        'startIndex' => $run['start'],
+                        'endIndex' => $run['end'],
+                    ]),
+                    'bulletPreset' => $run['bulletPreset'],
+                ]),
+            ]);
+        }
+
+        // Appliquer les styles texte en dernier pour éviter qu'un style de paragraphe (heading)
+        // n'écrase la couleur/format du texte.
         foreach ($textRuns as $run) {
             $textStyle = new TextStyle();
             $fields = [];
@@ -443,37 +518,6 @@ class GoogleDocsService
             }
         }
 
-        foreach ($paragraphRuns as $run) {
-            $attrs = $run['attrs'];
-            $paragraphStyle = new Docs\ParagraphStyle();
-            $fields = [];
-
-            $namedStyleType = $this->quillHeaderToNamedStyleType($attrs['header'] ?? null);
-            if ($namedStyleType !== null) {
-                $paragraphStyle->setNamedStyleType($namedStyleType);
-                $fields[] = 'namedStyleType';
-            }
-
-            $alignment = $this->quillAlignToAlignment($attrs['align'] ?? null);
-            if ($alignment !== null) {
-                $paragraphStyle->setAlignment($alignment);
-                $fields[] = 'alignment';
-            }
-
-            if (!empty($fields)) {
-                $requests[] = new DocsRequest([
-                    'updateParagraphStyle' => new Docs\UpdateParagraphStyleRequest([
-                        'range' => new Range([
-                            'startIndex' => $run['start'],
-                            'endIndex' => $run['end'],
-                        ]),
-                        'paragraphStyle' => $paragraphStyle,
-                        'fields' => implode(',', $fields),
-                    ]),
-                ]);
-            }
-        }
-
         $service->documents->batchUpdate($documentId, new BatchUpdateDocumentRequest(['requests' => $requests]));
 
         return $result;
@@ -489,10 +533,17 @@ class GoogleDocsService
         $dom->loadHTML('<?xml encoding="utf-8" ?><div>' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         libxml_clear_errors();
 
-        $segments = [];
-        $this->collectSegments($dom->getElementsByTagName('div')->item(0), $segments);
+        $root = $dom->getElementsByTagName('div')->item(0);
+        if (!$root instanceof \DOMElement) {
+            return;
+        }
 
-        if (empty($segments)) return;
+        $segments = [];
+        $this->collectSegments($root, $segments);
+
+        if (empty($segments)) {
+            return;
+        }
 
         $fullText = '';
         $textStyles = [];
@@ -542,8 +593,9 @@ class GoogleDocsService
             if (isset($ts['style']['bold'])) { $style->setBold(true); $fields[] = 'bold'; }
             if (isset($ts['style']['italic'])) { $style->setItalic(true); $fields[] = 'italic'; }
             if (isset($ts['style']['underline'])) { $style->setUnderline(true); $fields[] = 'underline'; }
-            if (isset($ts['style']['color'])) {
-                $style->setForegroundColor(new Docs\OptionalColor(['color' => new Docs\Color(['rgbColor' => $this->hexToRgb($ts['style']['color'])])]));
+            $color = $ts['style']['color'] ?? null;
+            if (is_string($color)) {
+                $style->setForegroundColor(new Docs\OptionalColor(['color' => new Docs\Color(['rgbColor' => $this->hexToRgb($color)])]));
                 $fields[] = 'foregroundColor';
             }
 
@@ -574,9 +626,15 @@ class GoogleDocsService
     }
 
     /**
-     * Collecte les segments de texte et leurs styles de manière récursive
+     * @param array<int, array{text: string, textStyle: array<string, bool|string>, paragraphStyle: string}> $segments
+     * @param array<string, bool|string> $currentTextStyle
      */
-    private function collectSegments(\DOMNode $node, &$segments, $currentTextStyle = [], $currentParagraphStyle = 'NORMAL_TEXT'): void
+    private function collectSegments(
+        \DOMNode $node,
+        array &$segments,
+        array $currentTextStyle = [],
+        string $currentParagraphStyle = 'NORMAL_TEXT'
+    ): void
     {
         foreach ($node->childNodes as $child) {
             if ($child->nodeType === XML_TEXT_NODE) {
@@ -607,9 +665,10 @@ class GoogleDocsService
                 if ($child->hasAttributes()) {
                     $styleAttr = $child->attributes->getNamedItem('style');
                     if ($styleAttr) {
-                        if (preg_match('/color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)/', $styleAttr->nodeValue, $matches)) {
+                        $styleAttrValue = (string) $styleAttr->nodeValue;
+                        if (preg_match('/color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)/', $styleAttrValue, $matches)) {
                             $newTextStyle['color'] = sprintf("#%02x%02x%02x", $matches[1], $matches[2], $matches[3]);
-                        } elseif (preg_match('/color:\s*(#[0-9a-fA-F]{6})/', $styleAttr->nodeValue, $matches)) {
+                        } elseif (preg_match('/color:\s*(#[0-9a-fA-F]{6})/', $styleAttrValue, $matches)) {
                             $newTextStyle['color'] = $matches[1];
                         }
                     }
@@ -724,6 +783,9 @@ class GoogleDocsService
         return (int) (strlen(mb_convert_encoding($text, 'UTF-16LE', 'UTF-8')) / 2);
     }
 
+    /**
+     * @return 'HEADING_1'|'HEADING_2'|'HEADING_3'|'HEADING_4'|'HEADING_5'|'HEADING_6'|null
+     */
     private function quillHeaderToNamedStyleType(mixed $header): ?string
     {
         $value = is_numeric($header) ? (int) $header : null;
@@ -739,6 +801,9 @@ class GoogleDocsService
         };
     }
 
+    /**
+     * @return 'CENTER'|'END'|'JUSTIFIED'|'START'|null
+     */
     private function quillAlignToAlignment(mixed $align): ?string
     {
         if (!is_string($align)) {
@@ -750,6 +815,22 @@ class GoogleDocsService
             'right' => 'END',
             'justify' => 'JUSTIFIED',
             'left' => 'START',
+            default => null,
+        };
+    }
+
+    /**
+     * @return 'BULLET_DISC_CIRCLE_SQUARE'|'NUMBERED_DECIMAL_ALPHA_ROMAN'|null
+     */
+    private function quillListToBulletPreset(mixed $list): ?string
+    {
+        if (!is_string($list)) {
+            return null;
+        }
+
+        return match (strtolower(trim($list))) {
+            'bullet' => 'BULLET_DISC_CIRCLE_SQUARE',
+            'ordered' => 'NUMBERED_DECIMAL_ALPHA_ROMAN',
             default => null,
         };
     }

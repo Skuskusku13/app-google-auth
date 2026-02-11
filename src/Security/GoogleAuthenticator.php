@@ -65,7 +65,7 @@ class GoogleAuthenticator extends OAuth2Authenticator
                 }
 
                 $expiresAt = $accessToken->getExpires();
-                $refreshToken = method_exists($accessToken, 'getRefreshToken') ? $accessToken->getRefreshToken() : null;
+                $refreshToken = $accessToken->getRefreshToken();
 
                 $user->setGoogleId($googleId);
                 $user->setName($googleUser->getName());
