@@ -16,8 +16,15 @@ class GoogleController extends AbstractController
         return $clientRegistry
             ->getClient('google')
             ->redirect([
-                'email', 'profile'
-            ], []);
+                'email',
+                'profile',
+                'https://www.googleapis.com/auth/documents',     // Pour créer/modifier des docs
+                'https://www.googleapis.com/auth/drive.file',    // Pour accéder aux fichiers
+            ], [
+                'access_type' => 'offline',
+                'prompt' => 'consent',
+                'include_granted_scopes' => 'true',
+            ]);
     }
 
     #[Route('/connect/google/check', name: 'connect_google_check')]
@@ -31,26 +38,26 @@ class GoogleController extends AbstractController
     public function connectSuccessAction(): Response
     {
         return new Response(<<<HTML
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Connexion réussie</title>
-</head>
-<body>
-    <script>
-        // Si la fenêtre a un "parent" (opener), on le redirige vers le dashboard et on ferme celle-ci
-        if (window.opener) {
-            window.opener.location.href = '/dashboard';
-            window.close();
-        } else {
-            // Fallback si pas de popup (accès direct)
-            window.location.href = '/dashboard';
-        }
-    </script>
-    <p>Connexion réussie. Redirection...</p>
-</body>
-</html>
-HTML
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Connexion réussie</title>
+            </head>
+            <body>
+                <script>
+                    // Si la fenêtre a un "parent" (opener), on le redirige vers le dashboard et on ferme celle-ci
+                    if (window.opener) {
+                        window.opener.location.href = '/dashboard';
+                        window.close();
+                    } else {
+                        // Fallback si pas de popup (accès direct)
+                        window.location.href = '/dashboard';
+                    }
+                </script>
+                <p>Connexion réussie. Redirection...</p>
+            </body>
+            </html>
+            HTML
         );
     }
 

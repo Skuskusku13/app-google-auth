@@ -51,17 +51,33 @@ class GoogleAuthenticator extends OAuth2Authenticator
                     ->findOneBy(['googleId' => $googleId]);
 
                 if (!$user) {
+                    // Fallback: rattacher le compte Google à un compte existant ayant le même email
+                    $user = $this->entityManager->getRepository(User::class)
+                        ->findOneBy(['email' => $email]);
+                }
+
+                if (!$user) {
                     // Créer un nouveau compte
                     $user = new User();
                     $user->setEmail($email);
-                    $user->setGoogleId($googleId);
-                    $user->setName($googleUser->getName());
-                    $user->setAvatar($googleUser->getAvatar());
                     $user->setRoles(['ROLE_USER']);
-
                     $this->entityManager->persist($user);
-                    $this->entityManager->flush();
                 }
+
+                $expiresAt = $accessToken->getExpires();
+                $refreshToken = $accessToken->getRefreshToken();
+
+                $user->setGoogleId($googleId);
+                $user->setName($googleUser->getName());
+                $user->setAvatar($googleUser->getAvatar());
+                $user->setGoogleAccessToken($accessToken->getToken());
+                if (is_string($refreshToken) && $refreshToken !== '') {
+                    // Google peut ne pas renvoyer le refresh_token à chaque login.
+                    $user->setGoogleRefreshToken($refreshToken);
+                }
+                $user->setGoogleTokenExpiresAt(is_int($expiresAt) ? (new \DateTimeImmutable())->setTimestamp($expiresAt) : null);
+
+                $this->entityManager->flush();
 
                 return $user;
             })
@@ -76,6 +92,6 @@ class GoogleAuthenticator extends OAuth2Authenticator
 
     public function onAuthenticationFailure(Request $request, AuthenticationException $exception): ?Response
     {
-        return new RedirectResponse($this->router->generate('app_login'));
+        return new RedirectResponse($this->router->generate('app_home'));
     }
 }

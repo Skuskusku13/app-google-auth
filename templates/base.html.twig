@@ -2,9 +2,15 @@
 <html>
     <head>
         <meta charset="UTF-8">
-        <title>{% block title %}Welcome!{% endblock %}</title>
-        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 128 128%22><text y=%221.2em%22 font-size=%2296%22>⚫️</text><text y=%221.3em%22 x=%220.2em%22 font-size=%2276%22 fill=%22%23fff%22>sf</text></svg>">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>{% block title %}Google Docs App{% endblock %}</title>
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 128 128%22><text y=%221.2em%22 font-size=%2296%22>📝</text></svg>">
         
+        <!-- Google Fonts -->
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
         <!-- Bootstrap 5 CSS -->
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
         <!-- Bootstrap Icons -->
@@ -16,9 +22,58 @@
 
         {% block javascripts %}
             {% block importmap %}{{ importmap('app') }}{% endblock %}
+            <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
         {% endblock %}
     </head>
     <body>
-        {% block body %}{% endblock %}
+        <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom sticky-top">
+            <div class="container">
+                <a class="navbar-brand d-flex align-items-center fw-bold text-primary" href="{{ path('app_home') }}">
+                    <i class="bi bi-file-earmark-text-fill me-2 fs-3"></i>
+                    <span>GDox Manager</span>
+                </a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="collapse navbar-collapse" id="navbarNav">
+                    <ul class="navbar-nav ms-auto align-items-center">
+                        {% if app.user %}
+                            <li class="nav-item">
+                                <a class="nav-link fw-medium" href="{{ path('app_dashboard') }}">Tableau de bord</a>
+                            </li>
+                            <li class="nav-item dropdown ms-lg-3">
+                                <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown">
+                                    {% if app.user.avatar %}
+                                        <img src="{{ app.user.avatar }}" alt="Avatar" class="rounded-circle me-2" width="32" height="32">
+                                    {% else %}
+                                        <i class="bi bi-person-circle fs-4 me-2"></i>
+                                    {% endif %}
+                                    <span class="fw-medium">{{ app.user.name }}</span>
+                                </a>
+                                <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0">
+                                    <li><a class="dropdown-item py-2" href="{{ path('app_logout') }}"><i class="bi bi-box-arrow-right me-2"></i>Déconnexion</a></li>
+                                </ul>
+                            </li>
+                        {% else %}
+                            <li class="nav-item">
+                                <a class="btn btn-primary px-4 rounded-pill" href="{{ path('connect_google') }}">
+                                    <i class="bi bi-google me-2"></i>Connexion
+                                </a>
+                            </li>
+                        {% endif %}
+                    </ul>
+                </div>
+            </div>
+        </nav>
+
+        <main class="py-5">
+            {% block body %}{% endblock %}
+        </main>
+
+        <footer class="py-4 bg-light border-top mt-auto">
+            <div class="container text-center text-muted">
+                <p class="mb-0 small">&copy; {{ "now"|date("Y") }} GDox Manager - Architecture Master Projets</p>
+            </div>
+        </footer>
     </body>
 </html>
