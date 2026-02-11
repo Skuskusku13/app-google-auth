@@ -36,6 +36,15 @@ class User implements UserInterface
     #[ORM\Column(length: 500, nullable: true)]
     private ?string $avatar = null;
 
+    #[ORM\Column(type: 'text', nullable: true)]
+    private ?string $googleAccessToken = null;
+
+    #[ORM\Column(type: 'text', nullable: true)]
+    private ?string $googleRefreshToken = null;
+
+    #[ORM\Column(nullable: true)]
+    private ?\DateTimeImmutable $googleTokenExpiresAt = null;
+
     public function getId(): ?int
     {
         return $this->id;
@@ -118,6 +127,42 @@ class User implements UserInterface
     public function setAvatar(?string $avatar): static
     {
         $this->avatar = $avatar;
+
+        return $this;
+    }
+
+    public function getGoogleAccessToken(): ?string
+    {
+        return $this->googleAccessToken;
+    }
+
+    public function setGoogleAccessToken(?string $googleAccessToken): static
+    {
+        $this->googleAccessToken = $googleAccessToken;
+
+        return $this;
+    }
+
+    public function getGoogleRefreshToken(): ?string
+    {
+        return $this->googleRefreshToken;
+    }
+
+    public function setGoogleRefreshToken(?string $googleRefreshToken): static
+    {
+        $this->googleRefreshToken = $googleRefreshToken;
+
+        return $this;
+    }
+
+    public function getGoogleTokenExpiresAt(): ?\DateTimeImmutable
+    {
+        return $this->googleTokenExpiresAt;
+    }
+
+    public function setGoogleTokenExpiresAt(?\DateTimeImmutable $googleTokenExpiresAt): static
+    {
+        $this->googleTokenExpiresAt = $googleTokenExpiresAt;
 
         return $this;
     }
