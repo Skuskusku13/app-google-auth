@@ -167,17 +167,20 @@ class GoogleDocsService
         $content = '';
         foreach ($bodyContent as $element) {
             $paragraph = $element->getParagraph();
+            /** @var Docs\Paragraph|null $paragraph */
             if ($paragraph === null) {
                 continue;
             }
 
             $paragraphElements = $paragraph->getElements();
-            if (!is_array($paragraphElements)) {
+            /** @var array<Docs\ParagraphElement>|null $paragraphElements */
+            if ($paragraphElements === null) {
                 continue;
             }
 
             foreach ($paragraphElements as $paragraphElement) {
                 $textRun = $paragraphElement->getTextRun();
+                /** @var Docs\TextRun|null $textRun */
                 if ($textRun !== null) {
                     $content .= (string) $textRun->getContent();
                 }
