@@ -1,0 +1,25 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Document Google{% endblock %}
+
+{% block body %}
+    <div class="container py-5">
+        <h1 class="h3 mb-4">Document Google</h1>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <p class="mb-1"><strong>Titre :</strong> {{ info.title }}</p>
+                <p class="mb-1"><strong>ID :</strong> {{ info.documentId }}</p>
+                <p class="mb-3"><strong>Révision :</strong> {{ info.revisionId }}</p>
+                <a class="btn btn-primary" href="{{ info.url }}" target="_blank" rel="noopener">Ouvrir dans Google Docs</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5">Contenu texte</h2>
+                <pre class="mb-0" style="white-space: pre-wrap;">{{ content }}</pre>
+            </div>
+        </div>
+    </div>
+{% endblock %}
