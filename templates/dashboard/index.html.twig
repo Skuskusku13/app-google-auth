@@ -1,54 +1,172 @@
 {% extends 'base.html.twig' %}
 
-{% block title %}Mon Espace{% endblock %}
+{% block title %}Mon Espace - GDox Manager{% endblock %}
+
+{% block stylesheets %}
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+{% endblock %}
 
 {% block body %}
 <div class="container">
-    <div class="row justify-content-center">
-        <div class="col-md-6 col-lg-5">
-            
-            <div class="card card-custom text-center pt-5 pb-4 px-4 mt-5">
-                <div class="d-flex justify-content-center">
-                    {% if app.user.avatar %}
-                        <img src="{{ app.user.avatar }}" alt="Avatar" class="avatar-profile">
-                    {% else %}
-                        <div class="avatar-profile d-flex align-items-center justify-content-center text-primary fs-1">
-                            <i class="bi bi-person-circle"></i>
-                        </div>
-                    {% endif %}
-                </div>
-                
-                <div class="card-body mt-3">
-                    {# Affichage Nom Prénom #}
-                    <h2 class="fw-bold mb-1">Bienvenue {{ app.user.name }}</h2>
-                    <p class="text-muted mb-4"><i class="bi bi-envelope-at me-2"></i>{{ app.user.email }}</p>
-
-                    <div class="alert alert-success bg-opacity-10 border-0" role="alert">
-                        <i class="bi bi-check-circle-fill me-2"></i> Vous êtes connecté avec succès.
+    <div class="row g-4">
+        <!-- Sidebar: Profil -->
+        <div class="col-lg-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body text-center p-4">
+                    <div class="mb-3 mt-2">
+                        {% if app.user.avatar %}
+                            <img src="{{ app.user.avatar }}" alt="Avatar" class="avatar-profile mb-3">
+                        {% else %}
+                            <div class="avatar-profile d-flex align-items-center justify-content-center text-primary fs-1 bg-light mx-auto mb-3">
+                                <i class="bi bi-person-circle"></i>
+                            </div>
+                        {% endif %}
+                        <h4 class="fw-bold mb-0">{{ app.user.name }}</h4>
+                        <p class="text-muted small">{{ app.user.email }}</p>
                     </div>
 
-                    <hr class="my-4">
-
-                    <h4 class="mb-3 text-start"><i class="bi bi-file-earmark-plus me-2"></i>Créer un Google Doc</h4>
-                    <form action="{{ path('docs_create') }}" method="post" class="text-start">
-                        <div class="mb-3">
-                            <label for="docTitle" class="form-label visually-hidden">Titre du document</label>
-                            <input type="text" class="form-control" id="docTitle" name="title" placeholder="Titre du document" required>
-                        </div>
-                        <button type="submit" class="btn btn-primary w-100">
-                            <i class="bi bi-plus-lg me-2"></i>Créer le document
-                        </button>
-                    </form>
-
-                    <div class="mt-4 border-top pt-4">
-                        <a href="{{ path('app_logout') }}" class="btn btn-outline-danger btn-logout w-100">
-                            <i class="bi bi-box-arrow-right me-2"></i>Se déconnecter
-                        </a>
+                    <div class="alert alert-success py-2 border-0 bg-success bg-opacity-10 text-success small mb-4">
+                        <i class="bi bi-shield-check me-2"></i>Compte Google connecté
                     </div>
+
+                    <hr class="my-4 opacity-25">
+
+                    <div class="text-start">
+                        <h6 class="fw-bold mb-3 text-uppercase small text-muted">Messages récents</h6>
+                        {% for message in app.flashes('success') %}
+                            <div class="alert alert-success py-2 border-0 bg-success bg-opacity-10 text-success small mb-2" role="alert">
+                                {{ message }}
+                            </div>
+                        {% endfor %}
+                        {% for message in app.flashes('error') %}
+                            <div class="alert alert-danger py-2 border-0 bg-danger bg-opacity-10 text-danger small mb-2" role="alert">
+                                {{ message }}
+                            </div>
+                        {% endfor %}
+                    </div>
+
+                    {% set docUrls = app.flashes('doc_url') %}
+                    {% set docViewUrls = app.flashes('doc_view_url') %}
+                    {% for docUrl in docUrls %}
+                        <div class="card bg-primary bg-opacity-10 border-0 text-start mt-3">
+                            <div class="card-body p-3">
+                                <h6 class="fw-bold text-primary mb-2">Document créé !</h6>
+                                <div class="d-grid gap-2">
+                                    <a href="{{ docUrl }}" target="_blank" rel="noopener" class="btn btn-primary btn-sm rounded-pill">
+                                        <i class="bi bi-box-arrow-up-right me-2"></i>Ouvrir Google Docs
+                                    </a>
+                                    {% if docViewUrls[loop.index0] is defined %}
+                                        <a href="{{ docViewUrls[loop.index0] }}" class="btn btn-outline-primary btn-sm rounded-pill">
+                                            <i class="bi bi-eye me-2"></i>Voir les détails
+                                        </a>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
                 </div>
             </div>
+        </div>
 
+        <!-- Main Content: Editor -->
+        <div class="col-lg-8">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-0 pt-4 px-4">
+                    <h4 class="fw-bold mb-0">
+                        <i class="bi bi-file-earmark-plus me-2 text-primary"></i>Nouveau Document
+                    </h4>
+                </div>
+                <div class="card-body p-4">
+                    <form id="createDocForm" action="{{ path('docs_create') }}" method="post">
+                        <div class="mb-4">
+                            <label for="docTitle" class="form-label fw-semibold">Titre du document</label>
+                            <input type="text" class="form-control form-control-lg border-light bg-light shadow-none" id="docTitle" name="title" placeholder="Ex: Rapport de réunion" required>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="form-label fw-semibold">Contenu du document</label>
+                            <div id="editor-container" class="bg-white"></div>
+                            <input type="hidden" name="content_html" id="content_html">
+                            <input type="hidden" name="content_text" id="content_text">
+                            <input type="hidden" name="content_delta" id="content_delta">
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center">
+                            <button type="button" id="clearEditor" class="btn btn-link text-muted text-decoration-none small">
+                                <i class="bi bi-trash me-1"></i>Effacer le contenu
+                            </button>
+                            <button type="submit" class="btn btn-primary btn-lg px-5 shadow-sm">
+                                <i class="bi bi-cloud-upload me-2"></i>Créer le Document
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block javascripts %}
+    {{ parent() }}
+    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+    <script>
+        (function() {
+            function initQuill() {
+                var container = document.getElementById('editor-container');
+                if (!container) return;
+                
+                // Éviter la double initialisation
+                if (container.classList.contains('ql-container')) return;
+
+                var quill = new Quill('#editor-container', {
+                    theme: 'snow',
+                    placeholder: 'Écrivez ici le contenu de votre document...',
+                    modules: {
+                        toolbar: [
+                            [{ 'header': [1, 2, 3, false] }],
+                            ['bold', 'italic', 'underline', 'strike'],
+                            [{ 'color': [] }, { 'background': [] }],
+                            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                            ['clean']
+                        ]
+                    }
+                });
+
+                // Bouton pour effacer
+                var clearBtn = document.getElementById('clearEditor');
+                if (clearBtn) {
+                    clearBtn.addEventListener('click', function() {
+                        if (confirm('Effacer tout le contenu de l\'éditeur ?')) {
+                            quill.setContents([]);
+                        }
+                    });
+                }
+
+                var form = document.getElementById('createDocForm');
+                if (form) {
+                    form.onsubmit = function(e) {
+                        var html = quill.root.innerHTML;
+                        if (quill.getText().trim().length === 0) {
+                            alert('Veuillez saisir du contenu pour votre document.');
+                            return false;
+                        }
+                        document.getElementById('content_html').value = html;
+                        document.getElementById('content_text').value = quill.getText();
+                        document.getElementById('content_delta').value = JSON.stringify(quill.getContents());
+                        return true;
+                    };
+                }
+            }
+
+            // Initialisation au chargement et via Turbo si présent
+            document.addEventListener('DOMContentLoaded', initQuill);
+            document.addEventListener('turbo:load', initQuill);
+            
+            // Fallback si DOMContentLoaded est déjà passé
+            if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                initQuill();
+            }
+        })();
+    </script>
 {% endblock %}

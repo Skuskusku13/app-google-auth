@@ -261,6 +261,374 @@ class GoogleDocsService
     }
 
     /**
+     * Crée un nouveau document Google Docs à partir de contenu HTML
+     *
+     * @param string $title Le titre du document
+     * @param string $html Le contenu HTML (supporte b, i, u, span style color, etc.)
+     * @return array ['documentId' => string, 'title' => string, 'url' => string]
+     * @throws \Exception
+     */
+    public function createDocumentFromHtml(string $title, string $html): array
+    {
+        $result = $this->createDocument($title);
+        $documentId = $result['documentId'];
+
+        $this->applyHtmlToDocument($documentId, $html);
+
+        return $result;
+    }
+
+    /**
+     * Crée un document depuis contenu riche Quill (Delta prioritaire, HTML en fallback)
+     */
+    public function createDocumentFromRichContent(string $title, ?string $deltaJson, string $htmlFallback): array
+    {
+        if (is_string($deltaJson) && trim($deltaJson) !== '') {
+            try {
+                return $this->createDocumentFromDelta($title, $deltaJson);
+            } catch (\Throwable) {
+                // Fallback robuste sur le parseur HTML existant
+            }
+        }
+
+        return $this->createDocumentFromHtml($title, $htmlFallback);
+    }
+
+    /**
+     * Crée un document depuis le Delta Quill pour préserver bold/italic/color/size/header.
+     *
+     * @throws \JsonException
+     */
+    public function createDocumentFromDelta(string $title, string $deltaJson): array
+    {
+        $delta = json_decode($deltaJson, true, 512, JSON_THROW_ON_ERROR);
+        $ops = $delta['ops'] ?? null;
+        if (!is_array($ops)) {
+            throw new \InvalidArgumentException('Delta Quill invalide.');
+        }
+
+        $result = $this->createDocument($title);
+        $documentId = $result['documentId'];
+
+        $fullText = '';
+        $textRuns = [];
+        $paragraphRuns = [];
+
+        $currentIndex = 1;
+        $paragraphStart = 1;
+
+        foreach ($ops as $op) {
+            $insert = $op['insert'] ?? null;
+            if (!is_string($insert) || $insert === '') {
+                continue;
+            }
+
+            $attrs = isset($op['attributes']) && is_array($op['attributes']) ? $op['attributes'] : [];
+            $parts = preg_split('/(\n)/u', $insert, -1, PREG_SPLIT_DELIM_CAPTURE);
+            if ($parts === false) {
+                continue;
+            }
+
+            foreach ($parts as $part) {
+                if ($part === '') {
+                    continue;
+                }
+
+                if ($part === "\n") {
+                    $fullText .= "\n";
+                    $lineEnd = $currentIndex + 1;
+                    $paragraphRuns[] = [
+                        'start' => $paragraphStart,
+                        'end' => $lineEnd,
+                        'attrs' => $attrs,
+                    ];
+                    $currentIndex = $lineEnd;
+                    $paragraphStart = $currentIndex;
+                    continue;
+                }
+
+                $length = $this->utf16Length($part);
+                if ($length <= 0) {
+                    continue;
+                }
+
+                $start = $currentIndex;
+                $end = $currentIndex + $length;
+                $fullText .= $part;
+
+                if (!empty($attrs)) {
+                    $textRuns[] = [
+                        'start' => $start,
+                        'end' => $end,
+                        'attrs' => $attrs,
+                    ];
+                }
+
+                $currentIndex = $end;
+            }
+        }
+
+        if ($fullText === '') {
+            throw new \InvalidArgumentException('Le contenu du document est vide.');
+        }
+
+        if (!str_ends_with($fullText, "\n")) {
+            $fullText .= "\n";
+            $paragraphRuns[] = [
+                'start' => $paragraphStart,
+                'end' => $currentIndex + 1,
+                'attrs' => [],
+            ];
+        }
+
+        $client = $this->getClient();
+        $service = new Docs($client);
+        $requests = [];
+
+        $requests[] = new DocsRequest([
+            'insertText' => new InsertTextRequest([
+                'location' => new Location(['index' => 1]),
+                'text' => $fullText,
+            ]),
+        ]);
+
+        foreach ($textRuns as $run) {
+            $textStyle = new TextStyle();
+            $fields = [];
+            $attrs = $run['attrs'];
+
+            if (!empty($attrs['bold'])) {
+                $textStyle->setBold(true);
+                $fields[] = 'bold';
+            }
+            if (!empty($attrs['italic'])) {
+                $textStyle->setItalic(true);
+                $fields[] = 'italic';
+            }
+            if (!empty($attrs['underline'])) {
+                $textStyle->setUnderline(true);
+                $fields[] = 'underline';
+            }
+
+            $fontSize = $this->quillSizeToPt($attrs['size'] ?? null);
+            if ($fontSize !== null) {
+                $textStyle->setFontSize(new Dimension([
+                    'magnitude' => $fontSize,
+                    'unit' => 'PT',
+                ]));
+                $fields[] = 'fontSize';
+            }
+
+            $hexColor = $this->normalizeColorToHex($attrs['color'] ?? null);
+            if ($hexColor !== null) {
+                $textStyle->setForegroundColor(new Docs\OptionalColor([
+                    'color' => new Docs\Color([
+                        'rgbColor' => $this->hexToRgb($hexColor),
+                    ]),
+                ]));
+                $fields[] = 'foregroundColor';
+            }
+
+            if (!empty($fields)) {
+                $requests[] = new DocsRequest([
+                    'updateTextStyle' => new UpdateTextStyleRequest([
+                        'range' => new Range([
+                            'startIndex' => $run['start'],
+                            'endIndex' => $run['end'],
+                        ]),
+                        'textStyle' => $textStyle,
+                        'fields' => implode(',', $fields),
+                    ]),
+                ]);
+            }
+        }
+
+        foreach ($paragraphRuns as $run) {
+            $attrs = $run['attrs'];
+            $paragraphStyle = new Docs\ParagraphStyle();
+            $fields = [];
+
+            $namedStyleType = $this->quillHeaderToNamedStyleType($attrs['header'] ?? null);
+            if ($namedStyleType !== null) {
+                $paragraphStyle->setNamedStyleType($namedStyleType);
+                $fields[] = 'namedStyleType';
+            }
+
+            $alignment = $this->quillAlignToAlignment($attrs['align'] ?? null);
+            if ($alignment !== null) {
+                $paragraphStyle->setAlignment($alignment);
+                $fields[] = 'alignment';
+            }
+
+            if (!empty($fields)) {
+                $requests[] = new DocsRequest([
+                    'updateParagraphStyle' => new Docs\UpdateParagraphStyleRequest([
+                        'range' => new Range([
+                            'startIndex' => $run['start'],
+                            'endIndex' => $run['end'],
+                        ]),
+                        'paragraphStyle' => $paragraphStyle,
+                        'fields' => implode(',', $fields),
+                    ]),
+                ]);
+            }
+        }
+
+        $service->documents->batchUpdate($documentId, new BatchUpdateDocumentRequest(['requests' => $requests]));
+
+        return $result;
+    }
+
+    /**
+     * Applique du HTML à un document Google Docs
+     */
+    public function applyHtmlToDocument(string $documentId, string $html): void
+    {
+        $dom = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="utf-8" ?><div>' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+
+        $segments = [];
+        $this->collectSegments($dom->getElementsByTagName('div')->item(0), $segments);
+
+        if (empty($segments)) return;
+
+        $fullText = '';
+        $textStyles = [];
+        $paragraphStyles = [];
+        $currentIndex = 1;
+
+        foreach ($segments as $seg) {
+            $text = $seg['text'];
+            $len = mb_strlen($text);
+            if ($len === 0) continue;
+
+            $start = $currentIndex;
+            $end = $currentIndex + $len;
+            $fullText .= $text;
+
+            if (!empty($seg['textStyle'])) {
+                $textStyles[] = ['range' => ['start' => $start, 'end' => $end], 'style' => $seg['textStyle']];
+            }
+            
+            // On enregistre les styles de paragraphe pour chaque segment qui se termine par \n
+            if (str_ends_with($text, "\n") || $text === "\n") {
+                $paragraphStyles[] = ['range' => ['start' => $start, 'end' => $end], 'style' => $seg['paragraphStyle']];
+            } else {
+                // Pour les segments de texte, on veut aussi qu'ils appartiennent au bon style de paragraphe
+                $paragraphStyles[] = ['range' => ['start' => $start, 'end' => $end], 'style' => $seg['paragraphStyle']];
+            }
+
+            $currentIndex += $len;
+        }
+
+        $client = $this->getClient();
+        $service = new Docs($client);
+        $requests = [];
+
+        // 1. Une seule grosse insertion
+        $requests[] = new DocsRequest([
+            'insertText' => new InsertTextRequest([
+                'location' => new Location(['index' => 1]),
+                'text' => $fullText
+            ])
+        ]);
+
+        // 2. Appliquer les styles de texte
+        foreach ($textStyles as $ts) {
+            $style = new TextStyle();
+            $fields = [];
+            if (isset($ts['style']['bold'])) { $style->setBold(true); $fields[] = 'bold'; }
+            if (isset($ts['style']['italic'])) { $style->setItalic(true); $fields[] = 'italic'; }
+            if (isset($ts['style']['underline'])) { $style->setUnderline(true); $fields[] = 'underline'; }
+            if (isset($ts['style']['color'])) {
+                $style->setForegroundColor(new Docs\OptionalColor(['color' => new Docs\Color(['rgbColor' => $this->hexToRgb($ts['style']['color'])])]));
+                $fields[] = 'foregroundColor';
+            }
+
+            if (!empty($fields)) {
+                $requests[] = new DocsRequest([
+                    'updateTextStyle' => new UpdateTextStyleRequest([
+                        'range' => new Range(['startIndex' => $ts['range']['start'], 'endIndex' => $ts['range']['end']]),
+                        'textStyle' => $style,
+                        'fields' => implode(',', $fields)
+                    ])
+                ]);
+            }
+        }
+
+        // 3. Appliquer les styles de paragraphe
+        foreach ($paragraphStyles as $ps) {
+            $requests[] = new DocsRequest([
+                'updateParagraphStyle' => new Docs\UpdateParagraphStyleRequest([
+                    'range' => new Range(['startIndex' => $ps['range']['start'], 'endIndex' => $ps['range']['end']]),
+                    'paragraphStyle' => new Docs\ParagraphStyle(['namedStyleType' => $ps['style']]),
+                    'fields' => 'namedStyleType'
+                ])
+            ]);
+        }
+
+        $batchUpdateRequest = new BatchUpdateDocumentRequest(['requests' => $requests]);
+        $service->documents->batchUpdate($documentId, $batchUpdateRequest);
+    }
+
+    /**
+     * Collecte les segments de texte et leurs styles de manière récursive
+     */
+    private function collectSegments(\DOMNode $node, &$segments, $currentTextStyle = [], $currentParagraphStyle = 'NORMAL_TEXT'): void
+    {
+        foreach ($node->childNodes as $child) {
+            if ($child->nodeType === XML_TEXT_NODE) {
+                $content = $child->textContent;
+                if ($content !== '') {
+                    $segments[] = [
+                        'text' => $content,
+                        'textStyle' => $currentTextStyle,
+                        'paragraphStyle' => $currentParagraphStyle
+                    ];
+                }
+            } elseif ($child->nodeType === XML_ELEMENT_NODE) {
+                $newTextStyle = $currentTextStyle;
+                $newParagraphStyle = $currentParagraphStyle;
+                $isBlock = false;
+                $tagName = strtolower($child->nodeName);
+
+                switch ($tagName) {
+                    case 'b': case 'strong': $newTextStyle['bold'] = true; break;
+                    case 'i': case 'em': $newTextStyle['italic'] = true; break;
+                    case 'u': $newTextStyle['underline'] = true; break;
+                    case 'h1': $newParagraphStyle = 'HEADING_1'; $isBlock = true; break;
+                    case 'h2': $newParagraphStyle = 'HEADING_2'; $isBlock = true; break;
+                    case 'h3': $newParagraphStyle = 'HEADING_3'; $isBlock = true; break;
+                    case 'p': case 'div': $isBlock = true; break;
+                }
+
+                if ($child->hasAttributes()) {
+                    $styleAttr = $child->attributes->getNamedItem('style');
+                    if ($styleAttr) {
+                        if (preg_match('/color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)/', $styleAttr->nodeValue, $matches)) {
+                            $newTextStyle['color'] = sprintf("#%02x%02x%02x", $matches[1], $matches[2], $matches[3]);
+                        } elseif (preg_match('/color:\s*(#[0-9a-fA-F]{6})/', $styleAttr->nodeValue, $matches)) {
+                            $newTextStyle['color'] = $matches[1];
+                        }
+                    }
+                }
+
+                $this->collectSegments($child, $segments, $newTextStyle, $newParagraphStyle);
+
+                if ($isBlock || $tagName === 'br') {
+                    $segments[] = [
+                        'text' => "\n",
+                        'textStyle' => [],
+                        'paragraphStyle' => $newParagraphStyle
+                    ];
+                }
+            }
+        }
+    }
+
+    /**
      * Applique un style de texte sur une plage spécifique
      *
      * @param string $documentId L'ID du document
@@ -349,5 +717,90 @@ class GoogleDocsService
             'green' => $g,
             'blue' => $b
         ]);
+    }
+
+    private function utf16Length(string $text): int
+    {
+        return (int) (strlen(mb_convert_encoding($text, 'UTF-16LE', 'UTF-8')) / 2);
+    }
+
+    private function quillHeaderToNamedStyleType(mixed $header): ?string
+    {
+        $value = is_numeric($header) ? (int) $header : null;
+
+        return match ($value) {
+            1 => 'HEADING_1',
+            2 => 'HEADING_2',
+            3 => 'HEADING_3',
+            4 => 'HEADING_4',
+            5 => 'HEADING_5',
+            6 => 'HEADING_6',
+            default => null,
+        };
+    }
+
+    private function quillAlignToAlignment(mixed $align): ?string
+    {
+        if (!is_string($align)) {
+            return null;
+        }
+
+        return match (strtolower(trim($align))) {
+            'center' => 'CENTER',
+            'right' => 'END',
+            'justify' => 'JUSTIFIED',
+            'left' => 'START',
+            default => null,
+        };
+    }
+
+    private function quillSizeToPt(mixed $size): ?float
+    {
+        if ($size === null) {
+            return null;
+        }
+
+        if (is_numeric($size)) {
+            return (float) $size;
+        }
+
+        if (!is_string($size) || $size === '') {
+            return null;
+        }
+
+        $normalized = strtolower(trim($size));
+
+        return match ($normalized) {
+            'small' => 10.0,
+            'large' => 16.0,
+            'huge' => 22.0,
+            default => preg_match('/^(\d+(?:\.\d+)?)px$/', $normalized, $matches) ? (float) $matches[1] * 0.75 : null,
+        };
+    }
+
+    private function normalizeColorToHex(mixed $color): ?string
+    {
+        if (!is_string($color)) {
+            return null;
+        }
+
+        $value = trim($color);
+        if ($value === '') {
+            return null;
+        }
+
+        if (preg_match('/^#[0-9a-fA-F]{6}$/', $value)) {
+            return strtoupper($value);
+        }
+
+        if (preg_match('/^rgb\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})\)$/i', $value, $matches)) {
+            $r = max(0, min(255, (int) $matches[1]));
+            $g = max(0, min(255, (int) $matches[2]));
+            $b = max(0, min(255, (int) $matches[3]));
+
+            return sprintf('#%02X%02X%02X', $r, $g, $b);
+        }
+
+        return null;
     }
 }

@@ -1,25 +1,59 @@
 {% extends 'base.html.twig' %}
 
-{% block title %}Document Google{% endblock %}
+{% block title %}{{ info.title }} - Détails{% endblock %}
 
 {% block body %}
-    <div class="container py-5">
-        <h1 class="h3 mb-4">Document Google</h1>
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <!-- Breadcrumbs -->
+            <nav aria-label="breadcrumb" class="mb-4">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ path('app_dashboard') }}">Tableau de bord</a></li>
+                    <li class="breadcrumb-item active" aria-current="page">{{ info.title }}</li>
+                </ol>
+            </nav>
 
-        <div class="card mb-4">
-            <div class="card-body">
-                <p class="mb-1"><strong>Titre :</strong> {{ info.title }}</p>
-                <p class="mb-1"><strong>ID :</strong> {{ info.documentId }}</p>
-                <p class="mb-3"><strong>Révision :</strong> {{ info.revisionId }}</p>
-                <a class="btn btn-primary" href="{{ info.url }}" target="_blank" rel="noopener">Ouvrir dans Google Docs</a>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-body">
-                <h2 class="h5">Contenu texte</h2>
-                <pre class="mb-0" style="white-space: pre-wrap;">{{ content }}</pre>
+            <div class="card border-0 shadow-sm overflow-hidden">
+                <div class="card-header bg-white border-bottom p-4 d-flex justify-content-between align-items-center">
+                    <div>
+                        <h2 class="fw-bold mb-1 text-primary">{{ info.title }}</h2>
+                        <p class="text-muted small mb-0">
+                            <i class="bi bi-clock me-1"></i> ID: <code>{{ info.documentId }}</code>
+                        </p>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <a href="{{ info.url }}" target="_blank" class="btn btn-primary rounded-pill">
+                            <i class="bi bi-pencil-square me-2"></i>Éditer sur Google
+                        </a>
+                    </div>
+                </div>
+                <div class="card-body p-5 bg-light">
+                    <div class="document-preview bg-white shadow-sm p-5 mx-auto" style="max-width: 800px; min-height: 500px; border-radius: 4px;">
+                        <div class="text-content" style="white-space: pre-wrap; font-family: 'Georgia', serif; line-height: 1.6; color: #333;">
+                            {{ content|nl2br }}
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info mt-4 border-0 bg-info bg-opacity-10 text-info small">
+                        <i class="bi bi-info-circle-fill me-2"></i> 
+                        Note: Cet aperçu affiche uniquement le texte brut du document. Pour voir le formatage complet, ouvrez-le dans Google Docs.
+                    </div>
+                </div>
+                <div class="card-footer bg-white border-top p-4">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <a href="{{ path('app_dashboard') }}" class="btn btn-outline-secondary rounded-pill">
+                            <i class="bi bi-arrow-left me-2"></i>Retour au tableau de bord
+                        </a>
+                        <form action="{{ path('docs_edit', {'documentId': info.documentId}) }}" method="post" onsubmit="return confirm('Voulez-vous vraiment écraser le contenu par un message de test ?');">
+                            <button type="submit" class="btn btn-outline-warning rounded-pill">
+                                <i class="bi bi-arrow-repeat me-2"></i>Test de mise à jour rapide
+                            </button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
+</div>
 {% endblock %}

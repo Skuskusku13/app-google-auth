@@ -12,9 +12,9 @@ use Symfony\Component\Routing\Attribute\Route;
 class DocsController extends AbstractController
 {
     /**
-     * Crée un nouveau document Google Docs avec du contenu formaté
+     * Crée un nouveau document Google Docs avec du contenu riche
      */
-    #[Route('/create', name: 'docs_create', methods: ['GET', 'POST'])]
+    #[Route('/create', name: 'docs_create', methods: ['POST'])]
     public function create(Request $request, GoogleDocsService $docsService): Response
     {
         if (!$this->getUser()) {
@@ -25,42 +25,29 @@ class DocsController extends AbstractController
         try {
             $title = trim((string) $request->request->get('title', ''));
             if ($title === '') {
-                $title = 'Mon Document depuis Symfony';
+                $title = 'Document sans titre';
             }
 
-            // Créer le document
-            $result = $docsService->createDocument($title);
+            $contentHtml = (string) $request->request->get('content_html', '');
+            $contentDelta = (string) $request->request->get('content_delta', '');
+            if (trim(strip_tags($contentHtml)) === '') {
+                $this->addFlash('error', 'Le contenu du document est obligatoire.');
+                return $this->redirectToRoute('app_dashboard');
+            }
+
+            // Créer le document à partir du Delta Quill (plus fiable pour les styles)
+            $result = $docsService->createDocumentFromRichContent($title, $contentDelta, $contentHtml);
             $documentId = $result['documentId'];
 
-            // Ajouter le contenu
-            $content = "Titre Principal\n\n";
-            $content .= "Ceci est le premier paragraphe de mon document créé automatiquement.\n\n";
-            $content .= "Voici un second paragraphe avec plus d'informations.\n\n";
-            $content .= "Conclusion : C'est génial !";
+            $this->addFlash('success', sprintf('Document "%s" créé avec succès.', $result['title']));
+            $this->addFlash('doc_url', $result['url']);
+            $this->addFlash('doc_view_url', $this->generateUrl('docs_view', ['documentId' => $documentId]));
 
-            $docsService->addTextToDocument($documentId, $content);
-
-            // Formater le titre (index 1 à 17 = "Titre Principal\n")
-            $docsService->formatText(
-                $documentId,
-                startIndex: 1,
-                endIndex: 17,
-                bold: true,
-                fontSize: 20,
-                foregroundColor: '#4285f4'
-            );
-
-            $this->addFlash('success', 'Document créé avec succès !');
-
-            return $this->render('docs/created.html.twig', [
-                'documentId' => $result['documentId'],
-                'title' => $result['title'],
-                'url' => $result['url']
-            ]);
+            return $this->redirectToRoute('app_dashboard');
 
         } catch (\Exception $e) {
             $this->addFlash('error', 'Erreur lors de la création du document : ' . $e->getMessage());
-            return $this->redirectToRoute('connect_google');
+            return $this->redirectToRoute('app_dashboard');
         }
     }
 
