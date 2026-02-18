@@ -22,8 +22,10 @@ WORKDIR /var/www/app-google/
 
 # Install system dependencies
 RUN apt update && apt upgrade -y \
+    && apt install -y wget \
     && docker-php-ext-install pdo pdo_mysql \
-    && apt clean && rm -rf /var/lib/apt/lists/*
+    && apt clean  \
+    && rm -rf /var/lib/apt/lists/*
 
 # Enable Apache modules
 RUN a2enmod rewrite
@@ -39,6 +41,16 @@ RUN pecl install xdebug && docker-php-ext-enable xdebug
 
 ENV APP_ENV=dev
 ENV APACHE_SERVER_NAME=app-google.localhost
+
+# Symfony CLI
+RUN wget https://get.symfony.com/cli/installer -O - | bash && mv /root/.symfony5/bin/symfony /usr/local/bin/symfony
+
+# Installation de Composer en version 2.8.5
+RUN <<EOF
+   curl -sS https://getcomposer.org/installer -o composer-setup.php
+   php composer-setup.php --version=2.9.5 --install-dir=/usr/local/bin --filename=composer
+   rm composer-setup.php
+EOF
 
 COPY --from=composer_dev /app/vendor /var/www/app-google/vendor
 COPY --from=composer_dev /app/composer.json /app/composer.lock /app/symfony.lock /var/www/app-google/
